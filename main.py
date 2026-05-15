@@ -16,7 +16,6 @@ if sys.stdout.encoding != 'utf-8':
 API_KEY = 'GUvJANUc1tEtIhvNgRqLnyjLh4DH1APCOdjKok028yULTVWswCiGlAOLgM3r1S7TGQCZLKHhEc9YJqSxDYPIw'        
 SECRET_KEY = 'wByStzD3OT6JO5M5FZZW8lyBEjWAbdObLG2c37B5EZ2ClybfWSTuEUpqpZmkKpRWN2024uqzMn820APquqVJw' 
 
-# Multiple Coins ki List
 SYMBOLS = ['RESOLV-USDT', 'SOL-USDT', 'XRP-USDT' ]
 
 TIMEFRAME = '15m'
@@ -431,8 +430,10 @@ def fetch_data_and_check_signal(symbol):
         df['cum_vol'] = df.groupby(group_key)['volume'].cumsum()
         df['vwap'] = df['cum_tp_vol'] / df['cum_vol']
         
-        last_closed = df.iloc[-2]
-        prev_closed = df.iloc[-3]
+        # 3 Candles History for Delayed Entry check
+        last_closed = df.iloc[-2]      # The candle that just closed
+        prev_closed = df.iloc[-3]      # The one before it
+        prev_prev_closed = df.iloc[-4] # The one before that
         
         current_price = last_closed['close']
         current_vwap = last_closed['vwap']
@@ -442,9 +443,20 @@ def fetch_data_and_check_signal(symbol):
         rsi_sma_diff = abs(last_closed['rsi'] - last_closed['sma'])
         is_diff_valid = rsi_sma_diff >= MIN_RSI_SMA_DIFF
 
+        prev_rsi_sma_diff = abs(prev_closed['rsi'] - prev_closed['sma'])
+
         # --- LONG CONDITIONS ---
+        # 1. Immediate Cross
         rsi_cross_up = (prev_closed['rsi'] <= prev_closed['sma']) and (last_closed['rsi'] > last_closed['sma'])
-        long_trigger_1 = last_closed['is_green'] and rsi_cross_up
+        
+        # 2. Delayed Cross (1-Candle Tolerance) - Agar pichli me fail hua par ab gap clear hai
+        prev_cross_up = (prev_prev_closed['rsi'] <= prev_prev_closed['sma']) and (prev_closed['rsi'] > prev_closed['sma'])
+        delayed_long_cross = prev_cross_up and (prev_rsi_sma_diff < MIN_RSI_SMA_DIFF) and (last_closed['rsi'] > last_closed['sma'])
+
+        # Combining both crosses
+        effective_cross_up = rsi_cross_up or delayed_long_cross
+        
+        long_trigger_1 = last_closed['is_green'] and effective_cross_up
         
         sma_turns_green = last_closed['is_green'] and not prev_closed['is_green']
         long_trigger_2 = sma_turns_green and (last_closed['rsi'] > last_closed['sma'])
@@ -453,8 +465,17 @@ def fetch_data_and_check_signal(symbol):
         long_condition = (long_trigger_1 or long_trigger_2) and is_diff_valid and (last_closed['rsi'] > last_closed['sma'])
 
         # --- SHORT CONDITIONS ---
+        # 1. Immediate Cross
         rsi_cross_down = (prev_closed['rsi'] >= prev_closed['sma']) and (last_closed['rsi'] < last_closed['sma'])
-        short_trigger_1 = last_closed['is_red'] and rsi_cross_down
+        
+        # 2. Delayed Cross (1-Candle Tolerance)
+        prev_cross_down = (prev_prev_closed['rsi'] >= prev_prev_closed['sma']) and (prev_closed['rsi'] < prev_closed['sma'])
+        delayed_short_cross = prev_cross_down and (prev_rsi_sma_diff < MIN_RSI_SMA_DIFF) and (last_closed['rsi'] < last_closed['sma'])
+
+        # Combining both crosses
+        effective_cross_down = rsi_cross_down or delayed_short_cross
+        
+        short_trigger_1 = last_closed['is_red'] and effective_cross_down
         
         sma_turns_red = last_closed['is_red'] and not prev_closed['is_red']
         short_trigger_2 = sma_turns_red and (last_closed['rsi'] < last_closed['sma'])
