@@ -1,3 +1,4 @@
 ccxt
 pandas
-ta
+pandas-ta
+firebase-admin
